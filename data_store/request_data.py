@@ -67,7 +67,7 @@ class RequestHFData:
             )
 
         self._interval_suffix = parsing_suffix
-        self._interval_scaler = int(interval.strip(parsing_suffix))
+        self._interval_scaler = int(self.interval.strip(parsing_suffix))
 
     def _req_hf_data_4_single_ticker(self, sym):
         # # main loop for requesting HF data of a single ticker
@@ -105,7 +105,7 @@ class RequestHFData:
             self.no_requested += 1
 
             finish_pc = min(
-                self.no_requested / self.total_req_no / len(symbols) * 100, 100
+                self.no_requested / self.total_req_no / len(self.symbols) * 100, 100
             )
             print(f"{finish_pc:.1f}% completed. ", end="\r")
 
@@ -168,7 +168,7 @@ class RequestHFData:
         dt_format = "%Y-%m-%d %H:%M:%S"
         filename_suffix = "_".join(
             [
-                interval,
+                self.interval,
                 self.start_dt.strftime(dt_format),
                 self.end_dt.strftime(dt_format),
             ]
@@ -179,7 +179,7 @@ class RequestHFData:
             self._concat_dfs[sym].to_csv(filepath, index=False)
 
     def candlestick_plot(self):
-        for sym in symbols:
+        for sym in self.symbols:
             df = self._concat_dfs[sym]
             fig = go.Figure(
                 data=[

@@ -130,3 +130,6 @@ dmypy.json
 
 # ignore ticker data
 data_store/ticker_data
+
+# ignore pkl
+prototypes/*.pkl
