@@ -8,37 +8,35 @@ class TestStrategy(bt.Strategy):
     # hyperparams tuned
     params = dict(
         rsi_window=19,
-        macd_window_slow=21,
-        macd_window_fast=7,
-        macd_window_sign=4,
-        bollinger_window=15,
+        macd_window_slow=26,
+        macd_window_fast=17,
+        macd_window_sign=14,
+        bollinger_window=25,
         bollinger_window_dev=4,
     )
-    # bars, position holding period
+    # days, position holding period
     position_holding_period = 3
     # pre-learnt stat model
-    with open("../prototypes/scti.pkl", "rb") as fid:
-        gboost_mdl = pickle.load(fid)
-    # for calculating trade fractions with Kelly Criterion
-    average_log_return = 0.06
+    with open("../prototypes/scti_(up & dn).pkl", "rb") as fid:
+        mdl = pickle.load(fid)
 
     def _model_prediction(self):
         rsi = self.rsi[0]
-        crossing_hband = self.crossing_hband[0]
+        crossing_lband = self.crossing_lband[0]
         pband = self.pband[0]
-        normalized_macd_diff = self.normalized_macd_diff[0]
+        wband = self.wband[0]
 
         feature_vec = pd.DataFrame(
             {
                 "rsi": [rsi],
-                "crossing_hband": [crossing_hband],
+                "crossing_lband": [crossing_lband],
                 "pband": [pband],
-                "normalized_macd_diff": [normalized_macd_diff],
+                "wband": [wband],
             }
         )
-        _next_3_day_log_return = float(self.gboost_mdl.predict(feature_vec))
-        self.log(f"Coming 3 days' log return: {_next_3_day_log_return:.3f}. ")
-        return _next_3_day_log_return
+        up_or_dn = int(self.mdl.predict(feature_vec))
+        self.log(f"Coming 3 days BTC going up or dn: {up_or_dn}. ")
+        return up_or_dn
 
     def log(self, txt, dt=None):
         """Logging function fot this strategy"""
@@ -51,24 +49,20 @@ class TestStrategy(bt.Strategy):
 
         # predictors for stat model
         self.rsi = bt.ind.RSI(period=self.params.rsi_window)  # line
-        self.macd = bt.ind.MACD(
-            period_me1=self.params.macd_window_fast,
-            period_me2=self.params.macd_window_slow,
-            period_signal=self.params.macd_window_sign,
-        )  # indicator
         self.bollinger = bt.ind.BollingerBands(
             period=self.params.bollinger_window,
             devfactor=self.params.bollinger_window_dev,
         )  # indicator
-        self.crossing_hband = bt.ind.CrossOver(
-            self.dataclose, self.bollinger.lines.top
+        self.crossing_lband = bt.ind.CrossOver(
+            self.dataclose, self.bollinger.lines.bot
         ).crossover  # line
         self.pband = (self.dataclose - self.bollinger.lines.bot) / (
             self.bollinger.lines.top - self.bollinger.lines.bot
         )  # line
-        self.normalized_macd_diff = (
-            self.macd.macd - self.macd.signal
-        ) / self.dataclose  # line
+        self.wband = (
+            (self.bollinger.lines.top - self.bollinger.lines.bot)
+            / self.bollinger.lines.mid
+        ) * 100
 
         # to keep track of all created orders
         self.orders = []
@@ -120,7 +114,6 @@ class TestStrategy(bt.Strategy):
         alive_order_status = [
             bt.Order.Submitted,
             bt.Order.Accepted,
-            bt.Order.Expired,
             bt.Order.Margin,
             bt.Order.Partial,
         ]
@@ -133,35 +126,30 @@ class TestStrategy(bt.Strategy):
                 return
 
         if not self.position:
-            _next_3_days_log_return = self._model_prediction()
+            up_or_dn = self._model_prediction()
 
-            kelly_size = (
-                self.stats.broker.value[0]
-                / self.dataclose[0]
-                * 0.5
-                # * _next_3_days_log_return
-                # / self.average_log_return
-            )
+            # invest fully
+            size = 0.99 * self.stats.broker.value[0] / self.dataclose[0]
 
             limit_order_spec = dict(
                 price=self.dataclose[0],
                 exectype=bt.Order.Limit,
                 # valid between the next and next next bar
                 valid=self.datas[0].datetime.date(0) + relativedelta(days=2),
-                size=kelly_size,
+                size=size,
             )
 
-            if _next_3_days_log_return > 0:
-                self.log("Buy created, %.2f" % self.dataclose[0])
+            if up_or_dn == 1:
+                self.log("Buy created @ price: %.2f" % self.dataclose[0])
                 self.orders.append(
                     self.buy(**limit_order_spec)
                 )  # long, to be executed at next bar
 
-            elif _next_3_days_log_return < 0:
-                self.log("Sell created, %.2f" % self.dataclose[0])
-                self.orders.append(
-                    self.sell(**limit_order_spec)
-                )  # short, to be executed at next bar
+            # elif up_or_dn == 0:
+            #     self.log("Sell created @ price: %.2f" % self.dataclose[0])
+            #     self.orders.append(
+            #         self.sell(**limit_order_spec)
+            #     )  # short, to be executed at next bar
 
         else:
             # no position will be hold for more than 3 days
@@ -169,7 +157,7 @@ class TestStrategy(bt.Strategy):
                 len(self)
                 >= self.last_order_completed_bar
                 + self.position_holding_period
-                - 1  # -1 so executed at end of 3rd bar from last order completed bar
+                - 1  # -1 so closing at end of 3rd bar from last order completed bar
             ):
                 self.log("Order created to close position last executed. ")
                 self.orders.append(self.close())  # unwind, to be executed at next bar
