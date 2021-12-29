@@ -128,8 +128,8 @@ class TestStrategy(bt.Strategy):
         if not self.position:
             up_or_dn = self._model_prediction()
 
-            # invest fully
-            size = 0.99 * self.stats.broker.value[0] / self.dataclose[0]
+            # invest 0.6 fraction as acc is 60%
+            size = 0.6 * self.stats.broker.value[0] / self.dataclose[0]
 
             limit_order_spec = dict(
                 price=self.dataclose[0],
@@ -145,11 +145,11 @@ class TestStrategy(bt.Strategy):
                     self.buy(**limit_order_spec)
                 )  # long, to be executed at next bar
 
-            # elif up_or_dn == 0:
-            #     self.log("Sell created @ price: %.2f" % self.dataclose[0])
-            #     self.orders.append(
-            #         self.sell(**limit_order_spec)
-            #     )  # short, to be executed at next bar
+            elif up_or_dn == 0:
+                self.log("Sell created @ price: %.2f" % self.dataclose[0])
+                self.orders.append(
+                    self.sell(**limit_order_spec)
+                )  # short, to be executed at next bar
 
         else:
             # no position will be hold for more than 3 days
